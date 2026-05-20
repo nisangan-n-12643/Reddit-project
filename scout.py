@@ -100,6 +100,36 @@ def post_to_cliq(webhook_url: str, link: str, summary: str) -> bool:
         return False
 
 
+def post_to_cliq_raw(webhook_url: str, text: str) -> bool:
+    try:
+        r = requests.post(webhook_url, json={"text": text}, timeout=20)
+        if r.status_code >= 300:
+            log(f"ERROR Cliq POST {r.status_code}: {r.text[:200]}")
+            return False
+        return True
+    except Exception as e:  # noqa: BLE001
+        log(f"ERROR posting to Cliq: {e}")
+        return False
+
+
+def chunk_text(text: str, max_chars: int = 9000) -> list[str]:
+    """Split text into chunks under max_chars, breaking on blank lines when possible."""
+    if len(text) <= max_chars:
+        return [text]
+    chunks: list[str] = []
+    current = ""
+    for block in text.split("\n\n"):
+        addition = (block + "\n\n")
+        if len(current) + len(addition) > max_chars and current:
+            chunks.append(current.rstrip())
+            current = addition
+        else:
+            current += addition
+    if current.strip():
+        chunks.append(current.rstrip())
+    return chunks
+
+
 # --------------------------- main ---------------------------
 
 def main() -> int:
@@ -143,25 +173,38 @@ def main() -> int:
     candidates.sort(key=lambda t: (-t[0], -(t[1].get("created_utc") or 0)))
 
     posted = 0
-    for score, p in candidates:
-        pid = p["id"]
-        link = "https://www.reddit.com" + p.get("permalink", "")
-        summary = two_line_summary(p)
+    if candidates:
+        lines = [f"🧵 *{len(candidates)} Reddit threads in the last {lookback_min} min*\n"]
+        for score, p in candidates:
+            pid = p["id"]
+            link = "https://www.reddit.com" + p.get("permalink", "")
+            summary = two_line_summary(p)
+            lines.append(f"[{score}] {link}\n{summary}\n")
+            seen[pid] = time.time()
+
+        digest = "\n".join(lines)
+
         if dry_run:
-            log(f"DRY [{score}] {link}\n  {summary}\n")
-            seen[pid] = time.time()
-            posted += 1
-            continue
-        if post_to_cliq(webhook, link, summary):
-            seen[pid] = time.time()
-            posted += 1
-            time.sleep(1)  # rate-limit friendly to Cliq
+            log(f"DRY digest ({len(candidates)} threads):\n{digest}")
+            posted = len(candidates)
         else:
-            # don't mark as seen so we retry next run
-            pass
+            # Cliq has ~10k char message limit; split if needed
+            chunks = chunk_text(digest, max_chars=9000)
+            all_ok = True
+            for chunk in chunks:
+                if not post_to_cliq_raw(webhook, chunk):
+                    all_ok = False
+                    break
+                time.sleep(1)
+            if all_ok:
+                posted = len(candidates)
+            else:
+                # Don't mark seen if posting failed
+                for _, p in candidates:
+                    seen.pop(p["id"], None)
 
     save_seen(seen)
-    log(f"Posted {posted} message(s). State saved ({len(seen)} ids).")
+    log(f"Posted {posted} thread(s) in digest. State saved ({len(seen)} ids).")
 
     if posted == 0 and not dry_run and webhook:
         idle_msg = f"🕒 No relevant threads found in the last {lookback_min} minutes."
