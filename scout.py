@@ -162,6 +162,16 @@ def main() -> int:
 
     save_seen(seen)
     log(f"Posted {posted} message(s). State saved ({len(seen)} ids).")
+
+    if posted == 0 and not dry_run and webhook:
+        idle_msg = f"🕒 No relevant threads found in the last {lookback_min} minutes."
+        try:
+            r = requests.post(webhook, json={"text": idle_msg}, timeout=15)
+            if r.status_code >= 300:
+                log(f"ERROR posting idle notice: {r.status_code} {r.text[:200]}")
+        except Exception as e:  # noqa: BLE001
+            log(f"ERROR posting idle notice: {e}")
+
     return 0
 
 
