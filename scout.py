@@ -188,8 +188,8 @@ def main() -> int:
             log(f"DRY digest ({len(candidates)} threads):\n{digest}")
             posted = len(candidates)
         else:
-            # Cliq has ~10k char message limit; split if needed
-            chunks = chunk_text(digest, max_chars=9000)
+            # Cliq channel messages cap around 3000 chars; chunk conservatively
+            chunks = chunk_text(digest, max_chars=2500)
             all_ok = True
             for chunk in chunks:
                 if not post_to_cliq_raw(webhook, chunk):
