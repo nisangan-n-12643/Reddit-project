@@ -1,9 +1,8 @@
 name: Reddit Scout
 
 on:
-  schedule:
-    # Top of every hour (UTC)
-    - cron: '0 * * * *'
+  # Scheduled runs disabled — Reddit blocks GitHub-hosted runner IPs (403).
+  # Scheduling is now handled locally via launchd: ~/Library/LaunchAgents/com.nisangan.redditscout.plist
   workflow_dispatch: {}
 
 permissions:
